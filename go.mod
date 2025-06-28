@@ -1,4 +1,4 @@
-module wmko-keyword-datasource
+module github.com/KeckObservatory/wmko-keyword-datasource
 
 go 1.24.1
 
