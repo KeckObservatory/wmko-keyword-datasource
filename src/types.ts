@@ -1,34 +1,25 @@
-import { DataSourceJsonData } from '@grafana/data';
-import { DataQuery } from '@grafana/schema';
+import { DataQuery, DataSourceJsonData } from '@grafana/data';
 
-export interface MyQuery extends DataQuery {
-  queryText?: string;
-  constant: number;
+export interface KeywordQuery extends DataQuery {
+  queryText: string;
+  service: string;
+  keyword: string;
+  unitConversion: number;
+  transform: number;
 }
 
-export const DEFAULT_QUERY: Partial<MyQuery> = {
-  constant: 6.5,
+export const defaultQuery: Partial<KeywordQuery> = {
+  unitConversion: 0,
+  transform: 0,
 };
-
-export interface DataPoint {
-  Time: number;
-  Value: number;
-}
-
-export interface DataSourceResponse {
-  datapoints: DataPoint[];
-}
 
 /**
  * These are options configured for each DataSource instance
  */
-export interface MyDataSourceOptions extends DataSourceJsonData {
-  path?: string;
-}
-
-/**
- * Value that is used in the backend, but never sent over HTTP to the frontend
- */
-export interface MySecureJsonData {
-  apiKey?: string;
+export interface KeywordDataSourceOptions extends DataSourceJsonData {
+  server: string;
+  port: string;
+  role: string;
+  database: string;
+  metatable: string;
 }

@@ -1,71 +1,115 @@
-import React, { ChangeEvent } from 'react';
-import { InlineField, Input, SecretInput } from '@grafana/ui';
+import React, { ChangeEvent, PureComponent } from 'react';
+import { LegacyForms } from '@grafana/ui';
 import { DataSourcePluginOptionsEditorProps } from '@grafana/data';
-import { MyDataSourceOptions, MySecureJsonData } from '../types';
+import { KeywordDataSourceOptions } from '../types';
 
-interface Props extends DataSourcePluginOptionsEditorProps<MyDataSourceOptions, MySecureJsonData> {}
+const { FormField } = LegacyForms;
 
-export function ConfigEditor(props: Props) {
-  const { onOptionsChange, options } = props;
-  const { jsonData, secureJsonFields, secureJsonData } = options;
+interface Props extends DataSourcePluginOptionsEditorProps<KeywordDataSourceOptions> {}
 
-  const onPathChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...jsonData,
-        path: event.target.value,
-      },
-    });
+interface State {}
+
+export class ConfigEditor extends PureComponent<Props, State> {
+  onServerChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { onOptionsChange, options } = this.props;
+    const jsonData = {
+      ...options.jsonData,
+      server: event.target.value,
+    };
+    onOptionsChange({ ...options, jsonData });
   };
 
-  // Secure field (only sent to the backend)
-  const onAPIKeyChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onOptionsChange({
-      ...options,
-      secureJsonData: {
-        apiKey: event.target.value,
-      },
-    });
+  onPortChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { onOptionsChange, options } = this.props;
+    const jsonData = {
+      ...options.jsonData,
+      port: event.target.value,
+    };
+    onOptionsChange({ ...options, jsonData });
   };
 
-  const onResetAPIKey = () => {
-    onOptionsChange({
-      ...options,
-      secureJsonFields: {
-        ...options.secureJsonFields,
-        apiKey: false,
-      },
-      secureJsonData: {
-        ...options.secureJsonData,
-        apiKey: '',
-      },
-    });
+  onRoleChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { onOptionsChange, options } = this.props;
+    const jsonData = {
+      ...options.jsonData,
+      role: event.target.value,
+    };
+    onOptionsChange({ ...options, jsonData });
   };
 
-  return (
-    <>
-      <InlineField label="Path" labelWidth={14} interactive tooltip={'Json field returned to frontend'}>
-        <Input
-          id="config-editor-path"
-          onChange={onPathChange}
-          value={jsonData.path}
-          placeholder="Enter the path, e.g. /api/v1"
-          width={40}
-        />
-      </InlineField>
-      <InlineField label="API Key" labelWidth={14} interactive tooltip={'Secure json field (backend only)'}>
-        <SecretInput
-          required
-          id="config-editor-api-key"
-          isConfigured={secureJsonFields.apiKey}
-          value={secureJsonData?.apiKey}
-          placeholder="Enter your API key"
-          width={40}
-          onReset={onResetAPIKey}
-          onChange={onAPIKeyChange}
-        />
-      </InlineField>
-    </>
-  );
+  onDatabaseChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { onOptionsChange, options } = this.props;
+    const jsonData = {
+      ...options.jsonData,
+      database: event.target.value,
+    };
+    onOptionsChange({ ...options, jsonData });
+  };
+
+  onMetatableChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { onOptionsChange, options } = this.props;
+    const jsonData = {
+      ...options.jsonData,
+      metatable: event.target.value,
+    };
+    onOptionsChange({ ...options, jsonData });
+  };
+
+  render() {
+    const { options } = this.props;
+    const { jsonData } = options;
+
+    return (
+      <div className="gf-form-group">
+        <div className="gf-form">
+          <FormField
+            label="Database server"
+            labelWidth={10}
+            inputWidth={20}
+            onChange={this.onServerChange}
+            value={jsonData.server || ''}
+            placeholder="vm-history-1"
+          />
+          <FormField
+            label="Port"
+            labelWidth={3}
+            inputWidth={4}
+            onChange={this.onPortChange}
+            value={jsonData.port || ''}
+            placeholder="5432"
+          />
+        </div>
+        <div className="gf-form">
+          <FormField
+            label="Role"
+            labelWidth={10}
+            inputWidth={20}
+            onChange={this.onRoleChange}
+            value={jsonData.role || ''}
+            placeholder="turk"
+          />
+        </div>
+        <div className="gf-form">
+          <FormField
+            label="Database"
+            labelWidth={10}
+            inputWidth={20}
+            onChange={this.onDatabaseChange}
+            value={jsonData.database || ''}
+            placeholder="keywordlog"
+          />
+        </div>
+        <div className="gf-form">
+          <FormField
+            label="Meta table"
+            labelWidth={10}
+            inputWidth={20}
+            onChange={this.onMetatableChange}
+            value={jsonData.metatable || ''}
+            placeholder="ktlmeta"
+          />
+        </div>
+      </div>
+    );
+  }
 }

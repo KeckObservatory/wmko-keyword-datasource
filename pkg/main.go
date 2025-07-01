@@ -3,9 +3,9 @@ package main
 import (
 	"os"
 
+	"github.com/KeckObservatory/wmko-keyword-datasource/pkg/plugin"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
-	"github.com/wmko/keyword/pkg/plugin"
 )
 
 func main() {
