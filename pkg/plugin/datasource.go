@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/lib/pq"
 	"math"
 	"net/http"
 	"net/url"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"database/sql"
+	"github.com/lib/pq"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
@@ -211,15 +211,38 @@ func (ds *KeywordDatasource) query(ctx context.Context, query backend.DataQuery,
 	from_u := float64(query.TimeRange.From.UnixNano()) * 1e-9
 	to_u := float64(query.TimeRange.To.UnixNano()) * 1e-9
 
-	// Strip bad characters from the service in case of SQL injection attack
-	// TODO - Is this sufficient?
-	service = pq.QuoteIdentifier(service)
+	// ----------------------------------------------------------------
+	// Determine the scalar type of the keyword
+	sql_type := fmt.Sprintf("select type from ktlmeta where service = $1 and keyword = $2 limit 1;")
+	row := db.QueryRow(sql_type, service, keyword)
 
+	var keyword_type string
+	switch err := row.Scan(&keyword_type); err {
+	case sql.ErrNoRows:
+		log.DefaultLogger.Error(fl() + "query no rows returned")
+
+		// Send back an empty frame since there's no data to be had
+		response.Frames = append(response.Frames, empty_frame)
+		return response
+
+	case nil:
+		log.DefaultLogger.Debug(fl() + fmt.Sprintf("%s.%s type is %s", service, keyword, keyword_type))
+
+	default:
+		log.DefaultLogger.Error(fl() + "Error from row.Scan: " + err.Error())
+		// Send back an empty frame, the query failed in some way
+		response.Frames = append(response.Frames, empty_frame)
+		response.Error = err
+		return response
+	}
+
+	// ----------------------------------------------------------------
 	// Build a SQL query for just counting
+	service = pq.QuoteIdentifier(service)
 	sql_count := fmt.Sprintf("select count(time) from %s where keyword = $1 and time >= $2 and time <= $3;", service)
 
 	// Run the query once to see how many we are going to get back
-	row := db.QueryRow(sql_count, keyword, from_u, to_u)
+	row = db.QueryRow(sql_count, keyword, from_u, to_u)
 
 	// Get the count value out of the query result
 	var count int32
@@ -256,11 +279,13 @@ func (ds *KeywordDatasource) query(ctx context.Context, query backend.DataQuery,
 
 	// Store times and values here first
 	times := make([]time.Time, count)
-	values := make([]float64, count)
+	values_floats := make([]float64, count)
+	values_strings := make([]string, count)
 
 	// Temporary variables for conversions/transforms
 	var timetemp float64
-	var valtemp, val float64
+	var valtemp_float, val float64
+	var valtemp_string string
 	var i int32
 
 	// Iterate only as many rows as predicted, it's possible more rows arrived after the initial query executed!
@@ -270,13 +295,17 @@ func (ds *KeywordDatasource) query(ctx context.Context, query backend.DataQuery,
 		if rows.Next() {
 
 			// Pull the elements out of the row
+			if keyword_type == "KTL_STRING" {
+				err = rows.Scan(&timetemp, &valtemp_string)
+			} else {
+				err = rows.Scan(&timetemp, &valtemp_float)
+			}
 
-			err = rows.Scan(&timetemp, &valtemp)
-
+			// This error may result because the value is not a float64, for example if the keyword is a string
 			if err != nil {
 				log.DefaultLogger.Error(fl() + "query scan error: " + err.Error())
 
-				// Send back an empty frame, the query failed in some way
+				// Send back an empty frame, the query failed in some way with both floats and strings
 				response.Frames = append(response.Frames, empty_frame)
 				response.Error = err
 				return response
@@ -292,27 +321,27 @@ func (ds *KeywordDatasource) query(ctx context.Context, query backend.DataQuery,
 
 		case UNIT_CONVERT_NONE:
 			// No conversion, just assign it straight over
-			val = valtemp
+			val = valtemp_float
 
 		case UNIT_CONVERT_DEG_TO_RAD:
 			// RAD = DEG * π/180  (1° = 0.01745rad)
-			val = valtemp * (math.Pi / 180)
+			val = valtemp_float * (math.Pi / 180)
 
 		case UNIT_CONVERT_RAD_TO_DEG:
 			// DEG = RAD * 180/π  (1rad = 57.296°)
-			val = valtemp * (180 / math.Pi)
+			val = valtemp_float * (180 / math.Pi)
 
 		case UNIT_CONVERT_RAD_TO_ARCSEC:
 			// ARCSEC = RAD * (3600 * 180)/π  (1rad = 206264.806")
-			val = valtemp * (3600 * 180 / math.Pi)
+			val = valtemp_float * (3600 * 180 / math.Pi)
 
 		case UNIT_CONVERT_K_TO_C:
 			// °C = K + 273.15
-			val = valtemp + 273.15
+			val = valtemp_float + 273.15
 
 		case UNIT_CONVERT_C_TO_K:
 			// K = °C − 273.15
-			val = valtemp - 273.15
+			val = valtemp_float - 273.15
 
 		default:
 			// Send back an empty frame with an error, we did not understand the conversion
@@ -322,7 +351,12 @@ func (ds *KeywordDatasource) query(ctx context.Context, query backend.DataQuery,
 		}
 
 		// Assign the value to the result array
-		values[i] = val
+		if keyword_type == "KTL_STRING" {
+			values_strings[i] = valtemp_string
+		} else {
+			values_floats[i] = val
+		}
+
 	}
 
 	// Perform any requested data transforms
@@ -344,7 +378,7 @@ func (ds *KeywordDatasource) query(ctx context.Context, query backend.DataQuery,
 			// Calculate the dy/dt
 			var dt, dvdt float64
 			dt = (times[i].Sub(times[i-1])).Seconds()
-			dvdt = (values[i] - values[i-1]) / dt
+			dvdt = (values_floats[i] - values_floats[i-1]) / dt
 
 			if qm.Transform == TRANSFORM_FIRST_DERIVATVE_1HZ {
 				dvdt = math.Round(dvdt)
@@ -359,7 +393,7 @@ func (ds *KeywordDatasource) query(ctx context.Context, query backend.DataQuery,
 
 		// Reassign the original arrays to be the 1st derivative results
 		times = dtimes
-		values = dvalues
+		values_floats = dvalues
 
 	case TRANSFORM_DELTA:
 		// Compute the deltas of the data.  This algorithm replicates what numpy diff() does in Python,
@@ -374,12 +408,12 @@ func (ds *KeywordDatasource) query(ctx context.Context, query backend.DataQuery,
 			dtimes[i-1] = times[i]
 
 			// Calculate the dx/dt and assume dt is always 1
-			dvalues[i-1] = values[i] - values[i-1]
+			dvalues[i-1] = values_floats[i] - values_floats[i-1]
 		}
 
 		// Reassign the original arrays to be the new results
 		times = dtimes
-		values = dvalues
+		values_floats = dvalues
 
 	default:
 		// Send back an empty frame with an error, we did not understand the transform
@@ -405,7 +439,11 @@ func (ds *KeywordDatasource) query(ctx context.Context, query backend.DataQuery,
 	// .Name field above (thus creating a series named "service.KEYWORD values" which may not be the desired
 	// name for the series.  Thus, submit it with an empty string for now which appears to work.
 	//frame.Fields = append(frame.Fields, data.NewField("values", nil, values))
-	frame.Fields = append(frame.Fields, data.NewField("", nil, values))
+	if keyword_type == "KTL_STRING" {
+		frame.Fields = append(frame.Fields, data.NewField("", nil, values_strings))
+	} else {
+		frame.Fields = append(frame.Fields, data.NewField("", nil, values_floats))
+	}
 	frame.Fields = append(frame.Fields, data.NewField("time", nil, times))
 
 	// add the frames to the response
