@@ -294,14 +294,14 @@ func (ds *KeywordDatasource) query(ctx context.Context, query backend.DataQuery,
 		// Get the next row
 		if rows.Next() {
 
-			// Pull the elements out of the row
+			// Pull the value out of the row, separate arrays for floats and strings
 			if keyword_type == "KTL_STRING" {
 				err = rows.Scan(&timetemp, &valtemp_string)
 			} else {
 				err = rows.Scan(&timetemp, &valtemp_float)
 			}
 
-			// This error may result because the value is not a float64, for example if the keyword is a string
+			// This error may result when it cannot be converted to either a float or a string
 			if err != nil {
 				log.DefaultLogger.Error(fl() + "query scan error: " + err.Error())
 
@@ -316,44 +316,46 @@ func (ds *KeywordDatasource) query(ctx context.Context, query backend.DataQuery,
 		sec, dec := math.Modf(timetemp)
 		times[i] = time.Unix(int64(sec), int64(dec*(1e9)))
 
-		// If we are doing a unit conversion, perform it now while we have the single value in hand
-		switch qm.UnitConversion {
-
-		case UNIT_CONVERT_NONE:
-			// No conversion, just assign it straight over
-			val = valtemp_float
-
-		case UNIT_CONVERT_DEG_TO_RAD:
-			// RAD = DEG * π/180  (1° = 0.01745rad)
-			val = valtemp_float * (math.Pi / 180)
-
-		case UNIT_CONVERT_RAD_TO_DEG:
-			// DEG = RAD * 180/π  (1rad = 57.296°)
-			val = valtemp_float * (180 / math.Pi)
-
-		case UNIT_CONVERT_RAD_TO_ARCSEC:
-			// ARCSEC = RAD * (3600 * 180)/π  (1rad = 206264.806")
-			val = valtemp_float * (3600 * 180 / math.Pi)
-
-		case UNIT_CONVERT_K_TO_C:
-			// °C = K + 273.15
-			val = valtemp_float + 273.15
-
-		case UNIT_CONVERT_C_TO_K:
-			// K = °C − 273.15
-			val = valtemp_float - 273.15
-
-		default:
-			// Send back an empty frame with an error, we did not understand the conversion
-			response.Frames = append(response.Frames, empty_frame)
-			response.Error = fmt.Errorf("Unknown unit conversion: %d", qm.UnitConversion)
-			return response
-		}
-
 		// Assign the value to the result array
 		if keyword_type == "KTL_STRING" {
+
 			values_strings[i] = valtemp_string
+
 		} else {
+			// If we are doing a unit conversion, perform it now while we have the single value in hand
+			switch qm.UnitConversion {
+
+			case UNIT_CONVERT_NONE:
+				// No conversion, just assign it straight over
+				val = valtemp_float
+
+			case UNIT_CONVERT_DEG_TO_RAD:
+				// RAD = DEG * π/180  (1° = 0.01745rad)
+				val = valtemp_float * (math.Pi / 180)
+
+			case UNIT_CONVERT_RAD_TO_DEG:
+				// DEG = RAD * 180/π  (1rad = 57.296°)
+				val = valtemp_float * (180 / math.Pi)
+
+			case UNIT_CONVERT_RAD_TO_ARCSEC:
+				// ARCSEC = RAD * (3600 * 180)/π  (1rad = 206264.806")
+				val = valtemp_float * (3600 * 180 / math.Pi)
+
+			case UNIT_CONVERT_K_TO_C:
+				// °C = K + 273.15
+				val = valtemp_float + 273.15
+
+			case UNIT_CONVERT_C_TO_K:
+				// K = °C − 273.15
+				val = valtemp_float - 273.15
+
+			default:
+				// Send back an empty frame with an error, we did not understand the conversion
+				response.Frames = append(response.Frames, empty_frame)
+				response.Error = fmt.Errorf("Unknown unit conversion: %d", qm.UnitConversion)
+				return response
+			}
+
 			values_floats[i] = val
 		}
 
